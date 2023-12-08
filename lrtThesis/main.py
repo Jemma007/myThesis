@@ -1,11 +1,11 @@
 import argparse
 import datetime
-
+import random
+import torch
+import os
+import numpy as np
 from dataset.concat_data import process_data
 from model.mtl.mmoe_with_auxiliary import MMOEAUD
-from trainer import *
-from neg_sampler import *
-from splitter import *
 from model.mtl.esmm import ESMM
 from model.mtl.mmoe import MMOE
 from torch.utils.tensorboard import SummaryWriter
@@ -16,12 +16,6 @@ writer = SummaryWriter(log_dir='runs')
 # from model.cf.item2vec import Item2Vec
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '6'
-
-def select_sampler(train_data, val_data, test_data, user_count, item_count, args):
-    if args.sample == 'random':
-        return RandomNegativeSampler(train_data, val_data, test_data, user_count, item_count, args.negsample_size, args.seed, args.negsample_savefolder)
-    elif args.sample == 'popular':
-        return PopularNegativeSampler(train_data, val_data, test_data, user_count, item_count, args.negsample_size, args.seed, args.negsample_savefolder)
 
 def set_seed(seed, re=True):
     random.seed(seed)
