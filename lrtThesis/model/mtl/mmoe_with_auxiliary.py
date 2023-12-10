@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from ..layers.core import DNN, PredictionLayer
 from sklearn.metrics import roc_auc_score
-save_data_path = '../../dataset/data/save/'
+save_data_path = '../../../dataset/data/save/'
 
 
 class MMOEAUD(nn.Module):
@@ -89,9 +89,9 @@ class MMOEAUD(nn.Module):
 
         # user embedding + item embedding
         self.input_dim = emb_dim * len(self.categorical_feature_dict) + len(continuous_feature_dict)
-        self.user_cat_feature_len = set(self.categorical_feature_dict.keys()) & set(self.user_features)
+        self.user_cat_feature_len = len(set(self.categorical_feature_dict.keys()) & set(self.user_features))
         self.user_input_dim = emb_dim * self.user_cat_feature_len + len(self.user_features) - self.user_cat_feature_len
-        self.item_dim = emb_dim
+        self.item_input_dim = emb_dim
 
         # expert dnn
         self.expert_dnn = nn.ModuleList([DNN(self.input_dim, self.expert_dnn_hidden_units, activation=dnn_activation,
@@ -166,23 +166,26 @@ class MMOEAUD(nn.Module):
         for cat_feature, num in self.categorical_feature_dict.items():
             cat_embed_list.append(self.embedding_dict[cat_feature](x[:, num[1]].long()))
             if cat_feature in self.user_features:
-                user_cat_embed_list.append(self.embedding_dict[cat_feature](x[:, num[1]].long()))
+                user_cat_embed = self.embedding_dict[cat_feature](x[:, num[1]].long()).detach()
+                user_cat_embed_list.append(user_cat_embed)
             if cat_feature == 'tag':
-                item_dnn_input = self.embedding_dict[cat_feature](x[:, num[1]].long())
+                item_dnn_input = self.embedding_dict[cat_feature](x[:, num[1]].long()).detach()
         for con_feature, num in self.continuous_feature_dict.items():
             con_embed_list.append(x[:, num[1]].unsqueeze(1))
             if con_feature in self.user_features:
-                user_con_embed_list.append(x[:, num[1]].unsqueeze(1))
+                user_con_embed = x[:, num[1]].unsqueeze(1).detach()
+                user_con_embed_list.append(user_con_embed)
 
         # embedding 融合
         cat_embed = torch.cat(cat_embed_list, axis=1)
         con_embed = torch.cat(con_embed_list, axis=1)
         user_cat_embed = torch.cat(user_cat_embed_list, axis=1)
-        user_con_embed = torch.cat(user_con_embed_list, axis=1)
+        # user_con_embed = torch.cat(user_con_embed_list, axis=1)
 
         # hidden layer
         dnn_input = torch.cat([cat_embed, con_embed], axis=1).float()  # batch * hidden_size
-        user_dnn_input = torch.cat([user_cat_embed, user_con_embed], axis=1).float()
+        # user_dnn_input = torch.cat([user_cat_embed, user_con_embed], axis=1).float()
+        user_dnn_input = user_cat_embed
         # print(dnn_input)
         # expert dnn
         expert_outs = []
@@ -256,38 +259,44 @@ class MMOEAUD(nn.Module):
         model.train()
         user_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
         item_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
-        for i in range(epoch):
+        for j in range(epoch):
             y_train_true = collections.defaultdict(list)
             y_train_predict = collections.defaultdict(list)
             total_loss, count = 0, 0
             for idx, (x, y) in tqdm(enumerate(train_loader)):
                 x, y= x.to(device), y.to(device)
                 predict, user_weight, item_weight = model(x)
+                # user weights处理
+                if idx == 0:
+                    user_avg_weight_in_batch = torch.mean(user_weight, dim=0).detach()
+                else:
+                    user_avg_weight_in_batch = user_avg_weight_in_batch*0.9 + 0.1*torch.mean(user_weight, dim=0).detach()
+                user_loss_weight = torch.where(y == 0,
+                                               torch.sigmoid((1-user_avg_weight_in_batch) / (1-user_weight)),
+                                               torch.sigmoid(user_avg_weight_in_batch / user_weight))
+                # item weights处理
+                if idx == 0:
+                    item_avg_weight_in_batch = torch.mean(item_weight, dim=0).detach()
+                else:
+                    item_avg_weight_in_batch = item_avg_weight_in_batch*0.1 + 0.9*torch.mean(item_weight, dim=0).detach()
+                item_loss_weight = torch.where(y == 0,
+                                               torch.sigmoid((1-item_avg_weight_in_batch) / (1 - item_weight)),
+                                               torch.sigmoid(item_avg_weight_in_batch / item_weight))
+                # print(user_avg_weight_in_batch, item_avg_weight_in_batch)
+                # print(item_loss_weight, user_loss_weight)
+                # print(user_weight, item_weight)
+                # 计算weight
+                loss_weight = torch.mul(item_loss_weight, user_loss_weight)
+                # 计算loss
+                loss = sum(
+                    [torch.matmul(loss_weight[:, i].T, self.loss_function[i](predict[:, i], y[:, i], reduction='none')) for i in range(self.num_tasks)])
+                reg_loss = self.get_regularization_loss()
+                curr_loss = loss + reg_loss
+                self.writer.add_scalar("train_loss", float(curr_loss), idx)
                 for i, l in enumerate(self.labels):
                     y_train_true[l] += list(y[:, i].cpu().numpy())
                     y_train_predict[l] += list(predict[:, i].cpu().detach().numpy())
-                print(user_weight, user_weight.shape)
-                # user weights处理
-                if idx == 0:
-                    user_avg_weight_in_batch = torch.mean(user_weight, dim=0)
-                else:
-                    user_avg_weight_in_batch = user_avg_weight_in_batch*0.9 + 0.1*torch.mean(user_weight, dim=0)
-                user_weight = torch.sigmoid((user_avg_weight_in_batch / user_weight) * -1)
-                user_weight[y==0] = torch.sigmoid(((1-user_avg_weight_in_batch) / (1-user_weight)) * -1)
-                print(user_weight, user_weight.shape)
-                # item weights处理
-                if idx == 0:
-                    item_avg_weight_in_batch = torch.mean(item_weight, dim=0)
-                else:
-                    item_avg_weight_in_batch = item_avg_weight_in_batch*0.9 + 0.1*torch.mean(item_weight, dim=0)
-                item_weight = torch.sigmoid((item_avg_weight_in_batch / item_weight) * -1)
-                item_weight[y==0] = torch.sigmoid(((item_avg_weight_in_batch - 1) / (1 - item_weight)))
-                # 计算loss
-                loss = sum(
-                    [self.loss_function[i](predict[:, i], y[:, i], weight=torch.mul(user_weight, item_weight), reduction='sum') for i in range(self.num_tasks)])
-                reg_loss = self.get_regularization_loss()
-                curr_loss = loss + reg_loss
-                self.writer.add_scalar("train_loss", curr_loss.detach().mean(), idx)
+                    self.writer.add_scalar("user_"+l+'_batch_avg', user_avg_weight_in_batch[i], idx)
                 optimizer.zero_grad()
                 curr_loss.backward()
                 optimizer.step()
@@ -296,7 +305,7 @@ class MMOEAUD(nn.Module):
             auc = dict()
             for l in self.labels:
                 auc[l] = roc_auc_score(y_train_true[l], y_train_predict[l])
-                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (i + 1, total_loss / count, l, auc[l]))
+                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (j + 1, total_loss / count, l, auc[l]))
             # 验证
             total_eval_loss = 0
             model.eval()
@@ -304,8 +313,6 @@ class MMOEAUD(nn.Module):
             y_val_true = collections.defaultdict(list)
             y_val_predict = collections.defaultdict(list)
             save_message = []
-            user_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
-            item_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
             for idx, (x, y) in enumerate(val_loader):
                 x, y = x.to(device), y.to(device)
                 predict, user_weight, item_weight = model(x)
@@ -314,25 +321,22 @@ class MMOEAUD(nn.Module):
                     y_val_predict[l] += list(predict[:, i].cpu().detach().numpy())
                 train_x = x.cpu().numpy()
                 # user weights处理
-                if idx == 0:
-                    user_avg_weight_in_batch = torch.mean(user_weight, dim=0)
-                else:
-                    user_avg_weight_in_batch = user_avg_weight_in_batch*0.9 + 0.1*torch.mean(user_weight, dim=0)
-                user_weight = torch.sigmoid((user_avg_weight_in_batch / user_weight) * -1)
-                user_weight[y==0] = torch.sigmoid(((1-user_avg_weight_in_batch) / (1-user_weight)) * -1)
+                user_loss_weight = torch.where(y==0,
+                                               torch.sigmoid(((1-user_avg_weight_in_batch) / (1-user_weight)) * -1),
+                                               torch.sigmoid((user_avg_weight_in_batch / user_weight) * -1))
                 # item weights处理
-                if idx == 0:
-                    item_avg_weight_in_batch = torch.mean(item_weight, dim=0)
-                else:
-                    item_avg_weight_in_batch = item_avg_weight_in_batch*0.9 + 0.1*torch.mean(item_weight, dim=0)
-                item_weight = torch.sigmoid((item_avg_weight_in_batch / item_weight) * -1)
-                item_weight[y==0] = torch.sigmoid(((1-item_avg_weight_in_batch) / (1-item_weight)) * -1)
+                item_loss_weight = torch.where(y==0,
+                                               torch.sigmoid(((1-item_avg_weight_in_batch) / (1-item_weight)) * -1),
+                                               torch.sigmoid((item_avg_weight_in_batch / item_weight) * -1))
+                # print(item_loss_weight, user_loss_weight)
+                # 计算weight
+                loss_weight = torch.mul(item_loss_weight, user_loss_weight)
                 # user_id转换
                 train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
                 save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
                 # loss计算
                 loss = sum(
-                    [self.loss_function[i](predict[:, i], y[:, i], weight=torch.mul(user_weight[:, i], item_weight[:, i]), reduction='sum') for i in range(self.num_tasks)])
+                    [torch.matmul(loss_weight[:, i].T, self.loss_function[i](predict[:, i], y[:, i], reduction='none')) for i in range(self.num_tasks)])
                 reg_loss = self.get_regularization_loss()
                 curr_loss = loss + reg_loss
                 self.writer.add_scalar("val_loss", curr_loss.detach().mean(), idx)
@@ -340,7 +344,7 @@ class MMOEAUD(nn.Module):
                 count_eval += 1
             final_save_message = np.concatenate(save_message, axis=0)
             val_df = pd.DataFrame(final_save_message)
-            val_df.to_csv(save_data_path+'val_predict_data.csv', index=False)
+            val_df.to_csv(save_data_path+'val_predict_data_mmoeauc.csv', index=False)
             auc = dict()
             for l in self.labels:
                 auc[l] = roc_auc_score(y_val_true[l], y_val_predict[l])
@@ -368,19 +372,38 @@ class MMOEAUD(nn.Module):
         count_eval = 0
         y_test_true = collections.defaultdict(list)
         y_test_predict = collections.defaultdict(list)
+        save_message = []
         for idx, (x, y) in enumerate(test_loader):
             x, y = x.to(device), y.to(device)
-            predict = model(x)
+            predict, user_weight, item_weight = model(x)
             for i, l in enumerate(self.lables):
                 y_test_true[l] += list(y[:, i].cpu().numpy())
                 y_test_predict[l] += list(predict[:, i].cpu().detach().numpy())
+            # user weights处理
+            user_loss_weight = torch.where(y == 0,
+                                           torch.sigmoid(((1 - user_avg_weight_in_batch) / (1 - user_weight)) * -1),
+                                           torch.sigmoid((user_avg_weight_in_batch / user_weight) * -1))
+            # item weights处理
+            item_loss_weight = torch.where(y == 0,
+                                           torch.sigmoid(((1 - item_avg_weight_in_batch) / (1 - item_weight)) * -1),
+                                           torch.sigmoid((item_avg_weight_in_batch / item_weight) * -1))
+            # 计算weight
+            loss_weight = torch.mul(item_loss_weight, user_loss_weight)
+            # user_id转换
+            train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
+            save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
+            # loss计算
             loss = sum(
-                [self.loss_function[i](predict[:, i], y[:, i], reduction='sum') for i in range(self.num_tasks)])
+                [torch.matmul(loss_weight[:, i].T, self.loss_function[i](predict[:, i], y[:, i], reduction='none')) for
+                 i in range(self.num_tasks)])
             reg_loss = self.get_regularization_loss()
             curr_loss = loss + reg_loss
             self.writer.add_scalar("test_loss", curr_loss.detach().mean(), idx)
             total_test_loss += float(curr_loss)
             count_eval += 1
+        final_save_message = np.concatenate(save_message, axis=0)
+        test_df = pd.DataFrame(final_save_message)
+        test_df.to_csv(save_data_path + 'test_predict_data_mmoeauc.csv', index=False)
         auc = dict()
         for l in self.labels:
             auc[l] = roc_auc_score(y_test_true, y_test_predict)

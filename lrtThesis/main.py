@@ -11,7 +11,7 @@ from model.mtl.mmoe import MMOE
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter(log_dir='runs')
 
-
+torch.autograd.set_detect_anomaly(True) # 启动异常检测
 # from model.cf.vae import VAECF
 # from model.cf.item2vec import Item2Vec
 
