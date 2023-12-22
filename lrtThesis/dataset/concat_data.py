@@ -12,15 +12,15 @@ raw_log_path = './dataset/data/log_standard_4_08_to_4_21_pure.csv'
 user_feature_path = './dataset/data/user_features_pure.csv'
 video_feature_path = './dataset/data/video_features_basic_pure.csv'
 save_path = './dataset/data/save/'
-category_features = (['user_id', 'weekday', 'hourmin', 'user_active_degree', 'is_lowactive_period', 'is_video_author',
-                     'follow_user_num_range', 'friend_user_num_range', 'register_days_range'] +
-                     [f'onehot_feat{i}' for i in range(18)] +
-                     ['video_id', 'author_id', 'video_type', 'upload_type', 'visible_status', 'tag'])
-continuous_features = ['duration_ms', 'server_width', 'server_height']
+category_features = (['user_id', 'weekday', 'hourmin', 'user_active_degree', 'is_video_author',
+                     'follow_user_num_range', 'fans_user_num_range', 'friend_user_num_range', 'register_days_range']
+                     + [f'onehot_feat{i}' for i in range(18)]
+                     + ['video_id', 'author_id', 'upload_type', 'tag'])
+continuous_features = ['duration_ms', 'server_width', 'server_height', 'follow_user_num', 'fans_user_num', 'friend_user_num']
 user_features = (['user_id','user_active_degree', 'is_lowactive_period', 'is_video_author',
-                     'follow_user_num_range', 'friend_user_num_range', 'register_days_range'] +
+                     'follow_user_num_range', 'friend_user_num_range', 'register_days_range', 'follow_user_num', 'fans_user_num', 'friend_user_num'] +
                 [f'onehot_feat{i}' for i in range(18)])
-labels = ['is_click', 'is_like', 'is_follow', 'is_comment', 'is_forward', 'long_view', 'is_not_hate']
+labels = ['is_click', 'is_like',  'long_view']
 
 class mtlDataSet(data_utils.Dataset):
     def __init__(self, data):

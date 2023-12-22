@@ -224,7 +224,7 @@ class MMOE(nn.Module):
             auc = dict()
             for l in self.labels:
                 auc[l] = roc_auc_score(y_train_true[l], y_train_predict[l])
-                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (i + 1, total_loss / count, l, auc[l]))
+                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (e + 1, total_loss / count, l, auc[l]))
             # 验证
             total_eval_loss = 0
             model.eval()
@@ -277,26 +277,32 @@ class MMOE(nn.Module):
         model.load_state_dict(state)
         total_test_loss = 0
         model.eval()
-        count_eval = 0
+        count_test = 0
         y_test_true = collections.defaultdict(list)
         y_test_predict = collections.defaultdict(list)
         for idx, (x, y) in enumerate(test_loader):
             x, y = x.to(device), y.to(device)
             predict = model(x)
-            for i, l in enumerate(self.lables):
+            for i, l in enumerate(self.labels):
                 y_test_true[l] += list(y[:, i].cpu().numpy())
                 y_test_predict[l] += list(predict[:, i].cpu().detach().numpy())
+            train_x = x.cpu().numpy()
+            train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
+            save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
             loss = sum(
                 [self.loss_function[i](predict[:, i], y[:, i], reduction='sum') for i in range(self.num_tasks)])
             reg_loss = self.get_regularization_loss()
             curr_loss = loss + reg_loss
             self.writer.add_scalar("test_loss", curr_loss.detach().mean(), idx)
             total_test_loss += float(curr_loss)
-            count_eval += 1
+            count_test += 1
+        final_save_message = np.concatenate(save_message, axis=0)
+        test_df = pd.DataFrame(final_save_message)
+        test_df.to_csv(save_data_path+'test_predict_data.csv', index=False)
         auc = dict()
         for l in self.labels:
-            auc[l] = roc_auc_score(y_test_true, y_test_predict)
-            print("Epoch %d test loss is %.3f, %s auc is %.3f" % (e + 1, total_test_loss / count_eval, l, auc[l]))
+            auc[l] = roc_auc_score(y_test_true[l], y_test_predict[l])
+            print("test loss is %.3f, %s auc is %.3f" % (total_test_loss / count_test, l, auc[l]))
 
     def get_regularization_loss(self, ):
         total_reg_loss = torch.zeros((1,), device=self.device)
