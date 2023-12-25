@@ -240,6 +240,7 @@ class MMOE(nn.Module):
                     y_val_predict[l] += list(predict[:, i].cpu().detach().numpy())
                 train_x = x.cpu().numpy()
                 train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
+                train_x[:, 27] = le['video_id'].inverse_transform(train_x[:, 27].astype(int))
                 save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
                 loss = sum(
                     [self.loss_function[i](predict[:, i], y[:, i], reduction='sum') for i in range(self.num_tasks)])
@@ -288,6 +289,7 @@ class MMOE(nn.Module):
                 y_test_predict[l] += list(predict[:, i].cpu().detach().numpy())
             train_x = x.cpu().numpy()
             train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
+            train_x[:, 27] = le['video_id'].inverse_transform(train_x[:, 27].astype(int))
             save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
             loss = sum(
                 [self.loss_function[i](predict[:, i], y[:, i], reduction='sum') for i in range(self.num_tasks)])

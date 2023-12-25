@@ -17,8 +17,8 @@ category_features = (['user_id', 'weekday', 'hourmin', 'user_active_degree', 'is
                      + [f'onehot_feat{i}' for i in range(18)]
                      + ['video_id', 'author_id', 'upload_type', 'tag'])
 continuous_features = ['duration_ms', 'server_width', 'server_height', 'follow_user_num', 'fans_user_num', 'friend_user_num']
-user_features = (['user_id','user_active_degree', 'is_lowactive_period', 'is_video_author',
-                     'follow_user_num_range', 'friend_user_num_range', 'register_days_range', 'follow_user_num', 'fans_user_num', 'friend_user_num'] +
+user_features = (['weekday', 'hourmin', 'user_active_degree', 'is_video_author',
+                     'follow_user_num_range', 'fans_user_num_range', 'friend_user_num_range', 'register_days_range', 'follow_user_num', 'fans_user_num', 'friend_user_num'] +
                 [f'onehot_feat{i}' for i in range(18)])
 labels = ['is_click', 'is_like',  'long_view']
 
