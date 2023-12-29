@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from ..layers.core import DNN, PredictionLayer
 from sklearn.metrics import roc_auc_score
-save_data_path = '../../../dataset/data/save/'
+save_data_path = './dataset/data/save/'
 
 
 class MMOEAUD(nn.Module):
@@ -259,7 +259,7 @@ class MMOEAUD(nn.Module):
         model.train()
         user_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
         item_avg_weight_in_batch = torch.zeros((self.num_tasks, 1))
-        for j in range(epoch):
+        for e in range(epoch):
             y_train_true = collections.defaultdict(list)
             y_train_predict = collections.defaultdict(list)
             total_loss, count = 0, 0
@@ -307,7 +307,7 @@ class MMOEAUD(nn.Module):
             auc = dict()
             for l in self.labels:
                 auc[l] = roc_auc_score(y_train_true[l], y_train_predict[l])
-                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (j + 1, total_loss / count, l, auc[l]))
+                print("Epoch %d train loss is %.3f, %s auc is %.3f" % (e + 1, total_loss / count, l, auc[l]))
             # 验证
             total_eval_loss = 0
             model.eval()
@@ -322,7 +322,6 @@ class MMOEAUD(nn.Module):
                 for i, l in enumerate(self.labels):
                     y_val_true[l] += list(y[:,i].cpu().numpy())
                     y_val_predict[l] += list(predict[:, i].cpu().detach().numpy())
-                train_x = x.cpu().numpy()
                 # user weights处理
                 user_loss_weight = torch.where(y==0,
                                                torch.sigmoid(((1-user_avg_weight_in_batch) / (1-user_weight)) * -1),
@@ -336,6 +335,7 @@ class MMOEAUD(nn.Module):
                 # loss_weight = torch.mul(item_loss_weight, user_loss_weight)
                 loss_weight = user_loss_weight
                 # user_id转换
+                train_x = x.cpu().numpy()
                 train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
                 save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
                 # loss计算
@@ -348,15 +348,17 @@ class MMOEAUD(nn.Module):
                 count_eval += 1
             final_save_message = np.concatenate(save_message, axis=0)
             val_df = pd.DataFrame(final_save_message)
-            val_df.to_csv(save_data_path+'val_predict_data_mmoeauc.csv', index=False)
+            val_df.to_csv(save_data_path+'val_predict_data_mmoeaud.csv', index=False)
             auc = dict()
             for l in self.labels:
                 auc[l] = roc_auc_score(y_val_true[l], y_val_predict[l])
-                print("Epoch %d val loss is %.3f, %s auc is %.3f" % (i + 1, total_eval_loss / count_eval, l, auc[l]))
+                print("Epoch %d val loss is %.3f, %s auc is %.3f" % (e + 1, total_eval_loss / count_eval, l, auc[l]))
             print('-------------------------------')
             # earl stopping
-            if i == 0:
+            if e == 0:
                 eval_loss = total_eval_loss / count_eval
+                state = model.state_dict()
+                torch.save(state, path)
             else:
                 if total_eval_loss / count_eval < eval_loss:
                     eval_loss = total_eval_loss / count_eval
@@ -381,7 +383,7 @@ class MMOEAUD(nn.Module):
             x, y = x.to(device), y.to(device)
             # predict, user_weight, item_weight = model(x)
             predict, user_weight = model(x)
-            for i, l in enumerate(self.lables):
+            for i, l in enumerate(self.labels):
                 y_test_true[l] += list(y[:, i].cpu().numpy())
                 y_test_predict[l] += list(predict[:, i].cpu().detach().numpy())
             # user weights处理
@@ -396,6 +398,7 @@ class MMOEAUD(nn.Module):
             # loss_weight = torch.mul(item_loss_weight, user_loss_weight)
             loss_weight = user_loss_weight
             # user_id转换
+            train_x = x.cpu().numpy()
             train_x[:, 0] = le['user_id'].inverse_transform(train_x[:, 0].astype(int))
             save_message.append(np.concatenate([train_x, y.cpu().numpy(), predict.cpu().detach().numpy()], axis=1))
             # loss计算
@@ -409,11 +412,11 @@ class MMOEAUD(nn.Module):
             count_eval += 1
         final_save_message = np.concatenate(save_message, axis=0)
         test_df = pd.DataFrame(final_save_message)
-        test_df.to_csv(save_data_path + 'test_predict_data_mmoeauc.csv', index=False)
+        test_df.to_csv(save_data_path + 'test_predict_data_mmoeaud.csv', index=False)
         auc = dict()
         for l in self.labels:
-            auc[l] = roc_auc_score(y_test_true, y_test_predict)
-            print("Epoch %d test loss is %.3f, %s auc is %.3f" % (i + 1, total_test_loss / count_eval, l, auc[l]))
+            auc[l] = roc_auc_score(y_test_true[l], y_test_predict[l])
+            print("Epoch %d test loss is %.3f, %s auc is %.3f" % (e + 1, total_test_loss / count_eval, l, auc[l]))
 
     def get_regularization_loss(self, ):
         total_reg_loss = torch.zeros((1,), device=self.device)
