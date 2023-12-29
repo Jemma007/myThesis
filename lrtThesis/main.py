@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--model_name', default='aud')
     parser.add_argument('--embedding_size', type=int, default=128)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=1)
 
     parser.add_argument('--lr', type=float, default=0.0005)
 
